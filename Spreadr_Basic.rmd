@@ -1,0 +1,93 @@
+---
+title: "Spreadr Basic"
+output: html_notebook
+---
+
+```{r}
+library('tidyverse')
+library('spreadr')
+library('ggplot2')
+library('igraph')
+library('data.table')
+```
+
+```{r}
+initial <- data.table(node='4',activation=100)
+```
+
+```{r}
+results <- function(network)
+  spreadr(
+    network = network,
+    retention = .9,
+    start_run = initial,
+    time = 100
+    ) %>% 
+  pivot_wider(
+    names_from = node,
+    values_from = activation,
+    names_prefix = 'a_of'	
+  )
+```
+
+```{r}
+watch_spread <- function(network)
+  results(network) %>% 
+  ggplot() +
+  geom_point(
+    mapping = aes(
+      x = time,
+      y = a_of4,
+      color = 'red'
+    ),
+  ) +
+  ylim(0,100) +
+  xlim(0,100)
+```
+
+```{r}
+
+full <- 
+  make_full_graph(
+    n = 7
+  )
+
+near <-
+  make_lattice(
+    length = 7,
+    dimvector = 7,
+    dim = 1,
+    nei = 2,
+    directed = FALSE,
+    circular = TRUE
+  )
+
+ring <- 
+  make_ring(
+    n = 7,
+    circular = TRUE
+)
+
+line <-
+  make_ring(
+    n = 7,
+    circular = FALSE
+)
+```
+
+```{r}
+
+diff = results(line) - results(ring)
+diff['time'] <- 1:100
+
+```
+
+```{r}
+behavior <- data.table(
+  'time' <- 1:100,
+  'full' <- results(full)[5],
+  'near' <- results(near)[5],
+  'ring' <- results(ring)[5]
+)
+```
+

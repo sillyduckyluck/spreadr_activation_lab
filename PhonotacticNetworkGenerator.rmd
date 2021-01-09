@@ -1,0 +1,180 @@
+# ---
+# title: "Phonotactic Network Generator"
+# author: Leo Niehorster-Cook
+# output: html_notebook
+# ---
+# In this file, we will generate the full biphonemic network. 
+# On this network, A and B are neighbors iff they share a substring of length 2. 
+# The standard English word list has nearly 20,000 entrees, impeding computation.
+# For tests, we will use Toki Pona, with 120 words, so that everything is fast.
+# Note that Toki Pona is written phonetically, with a subset of English letters.
+# Thus, for Toki Pona, the orthography happens to be equivilent to the Klattese. 
+# However, this file will work for any lexicon.
+# At the end, we will make the network for English.
+# 
+# To make the network, we're going to have to load up our data and our packages.
+# Then, we'll define some useful functions before building anything.
+# Before we build the biphonemic network, we'll build a bipartite network.
+# The layers will represent words and biphones. Edges will denote substrings.
+# The phonotactic network is then just the projection of that.
+# 
+# Let's load our packages and our data.
+
+```{r} 
+# Packages
+
+library(data.table) 
+library(igraph)
+library(ggplot2)
+
+```
+
+
+```{r} 
+# Data - Pick your language
+
+#data <- 'low_prob_words.csv' 
+data <- 'WordList.csv' # English
+lexicon.dt <- fread(file=data)
+
+```
+
+<!-- Now we've loaded everything up, so let's define some useful functions. -->
+
+```{r} 
+allsubstr <- # Returns an array of all unique substrings of length n from x 
+  function(x, n) 
+    substring(
+      text = x,
+      first = 1:(nchar(x) - n + 1),
+      last = n:nchar(x)
+    ) %>% 
+    unique()
+
+kgrams <- # Concatenates the substrings with a period to mark nonlexicality
+  function(x, n) '.' %>% paste0(allsubstr(x = x, n = n)) 
+
+biphones <- # Returns all the "2grams," i.e. two-length kgrams
+  function(x) kgrams(x = x, n = 2)
+```
+
+<!-- Now biphones('aardvark') returns: -->
+<!-- [1] ".ar" ".rd" ".dv" ".va" ".aa" ".rk" -->
+
+<!-- Note that biphones are represented as strings that start with a period.  -->
+<!-- This is to differentiate them from words, such that <to> != /to/. -->
+
+<!-- Note further that ".ar" is only listed once. -->
+
+```{r}
+
+lexicon.dt[,constituents:=Vectorize(biphones)(Klattese)]
+
+# Now our wordlist is stored as a data table
+# That column contains the constituent biphones of each word. 
+# Let's take a peek inside:
+
+head(lexicon.dt)
+```
+<!-- Our lexicon now has a set of constituent biphones associated with each word.  -->
+
+<!-- To build the bipartite network, we'll need the vertex set and edge set. -->
+<!-- Every word is a vertex, as is every biphone, marked by an initial '.' -->
+<!-- The edges will be between words and biphones that are their substrings. -->
+
+```{r}
+biphoneset <-
+  lexicon.dt[,sort(unique(unlist(constituents)))]
+
+head(biphoneset)
+```
+<!-- Now we have a set of all biphones, with '.' preceeding the string. -->
+<!-- Let's construct a dataframe that holds the vertices, i.e. words and biphones. -->
+<!-- In this dataframe, words will be named in orthographically, not Klattese. -->
+<!-- Again, in Toki Pona, this is redundant. -->
+
+<!-- We'll also mark each vertex for lexicality by "type". -->
+<!-- The first column will be the wordlist followed by the set of biphones. -->
+<!-- The second column will be 'TRUE' for words and 'FALSE' for biphones. -->
+```{r}
+vset <- data.frame(
+  v = c(
+    lexicon.dt$Orthography, 
+    biphoneset
+  ),
+  type = c(
+    rep(TRUE,length(lexicon.dt$Orthography)),
+    rep(FALSE,length(biphoneset))
+  ),
+  length = c(
+    lexicon.dt$Orthography %>% nchar(),
+    rep('N/A',length(biphoneset))
+  )
+)
+
+```
+
+<!-- We're nearly ready to construct the graph. -->
+<!-- Before we do, let's get the edges into another dataframe. -->
+```{r}
+
+eset <- lexicon.dt[,
+  list(
+    Orthography = rep(Orthography,lengths(constituents)),
+    biphone = unlist(constituents)
+  )
+]
+```
+
+<!-- Now let's build it! -->
+```{r}
+parser.g <- graph_from_data_frame(d = eset, vertices = vset)
+```
+
+Great! Now we have the bipartite network, 'b'. While we're at it, let's generate
+the lexical projection, 'w', and the biphonemic projection, 'b'.
+```{r}
+lexicon.g <- # The Lexicon
+  bipartite_projection(
+    graph = parser.g,
+    which="true"
+  )
+
+sublexicon.g <- # The Sublexicon 
+  bipartite_projection(
+    parser.g,
+    which="false"
+  )
+```
+
+OK, let's take a peek!
+```{r}
+plot.igraph(
+  x = lexicon.g,
+  layout = layout.fruchterman.reingold(
+    graph = lexicon.g,
+    niter=1000
+  )
+)
+```
+
+
+Let's write the networks to memory and get out of here!
+
+
+```{r}
+
+ write_graph(
+   graph = lexicon.g,
+   file = 'lexicon.gml',
+   format = 'gml'
+  )
+
+ write_graph(
+   graph = sublexicon.g,
+   file = 'parser.gml',
+   format = 'gml'
+  )
+    
+```
+

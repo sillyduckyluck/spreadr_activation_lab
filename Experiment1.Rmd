@@ -1,0 +1,368 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+In this file we will conduct an experiment, mimicking the spreadr settings in
+Vitevitch & Mullin (submitted). We hope to replicate the results of Vitevitch &
+Luce (1999), which showed that word-forms that have high phonotactic probability
+are more easily recognized. This corresponds to having a high degree on the
+biphonemic network.
+
+Before we begin, we'll import spreadr and redefine the function such that items
+in a matrix may be called by their name (and not just their index).
+
+```{r}
+spreadr <-function(network, start_run, retention = 0.5, time = 10, decay = 0, 
+    suppress = 0, create_names = TRUE) 
+{
+    if (is.data.frame(start_run) == F || colnames(start_run) != 
+        c("node", "activation")) {
+        stop("Initial activation dataframe is not in the correct format. Must be a dataframe with -node-\n         and -activation- columns.")
+    }
+    if (is.factor(start_run$node) == T) {
+        start_run$node <- as.character(start_run$node)
+    }
+    if (decay < 0 || decay > 1) {
+        stop("Decay value is not a number from 0 to 1.")
+    }
+    if (retention < 0 || retention > 1) {
+        stop("Retention value is not a number from 0 to 1.")
+    }
+    if (time < 0 || is.numeric(time) == F) {
+        stop("Something is off with the time value.")
+    }
+    if (igraph::is.igraph(network) == T) {
+        if (is.null(igraph::V(network)$name) == T) {
+            if (create_names == TRUE) {
+                igraph::V(network)$name = 1:length(igraph::V(network))
+            }
+            else {
+                stop("Network does not have a \"name\" attribute.")
+            }
+        }
+        if (length(unique(igraph::V(network)$name)) != igraph::gorder(network)) {
+            stop("Nodes need to have unique labels.")
+        }
+        if (igraph::is.weighted(network) == T) {
+            mat <- igraph::as_adj(network, sparse = F, attr = "weight")
+            d <- colSums(mat)
+            if (is.null(names(d))) 
+                names(d) <- 1:length(d)
+        }
+        else {
+            mat <- igraph::as_adj(network, sparse = F)
+            d <- colSums(mat)
+            if (is.null(names(d))) 
+                names(d) <- 1:length(d)
+        }
+    }
+    else {
+        mat <- network
+        d <- colSums(mat)
+        names(d) <- rownames(mat) #1:length(d)
+    }
+    n_nodes = length(d)
+    a <- rep(0, n_nodes)
+    names(a) <- names(d)
+    a[start_run$node] <- start_run$activation
+    out_df <- data.frame(node = names(a), activation = a, time = 0L)
+    a_t <- a
+    activations = numeric(time * n_nodes)
+    for (i in seq_len(time)) {
+        a_tm1 <- a_t
+        mat_t = spreadr:::create_mat_t(mat, a_tm1, d, retention)
+        a_t <- colSums(mat_t)
+        a_t <- a_t * (1 - decay)
+        a_t[a_t < suppress] <- 0
+        activations[((i - 1) * n_nodes + 1):(i * n_nodes)] = a_t
+    }
+    nodes = rep(names(d), time)
+    is = rep(1:time, rep(n_nodes, time))
+    return(data.frame(node = nodes, activation = activations, 
+        time = is))
+}
+```
+
+```{r}
+library(data.table)
+library(igraph)
+allsubstr <- function(x, n) unique(substring(x, 1:(nchar(x) - n + 1), n:nchar(x)))
+kgrams<-function(x,n) paste0('.',allsubstr(x=x,n=n))
+
+wl.dt<-fread(file='WordList.csv')
+#wl.dt<-head(wl.dt,100)
+#wl.dt<-wl.dt[sample(nrow(wl.dt),100),]
+wl.dt[,kgrams:=Vectorize(kgrams)(Klattese,2)]
+wl.dt
+kgram<-wl.dt[,sort(unique(unlist(kgrams)))]
+xbp<-wl.dt[,list(a=rep(Orthography,lengths(kgrams)),kgram=unlist(kgrams))]
+v<-data.frame(v=c(wl.dt$Orthography,kgram),type=c(rep(TRUE,length(wl.dt$Orthography))
+                                   ,rep(FALSE,length(kgram))))
+v
+b<-graph_from_data_frame(xbp, vertices=v)
+#library(rbenchmark)
+g<-bipartite_projection(b,which="true")
+
+write_graph(g,'WordList.gml','gml')
+
+mat<-igraph::as_adj(g, sparse = F) # unweighted graph
+rownames(mat)
+
+library(parallel)
+library(spreadr)
+spreadr<-function (network, start_run, retention = 0.5, time = 10, decay = 0, 
+    suppress = 0, create_names = TRUE) 
+{
+    if (is.data.frame(start_run) == F || colnames(start_run) != 
+        c("node", "activation")) {
+        stop("Initial activation dataframe is not in the correct format. Must be a dataframe with -node-\n         and -activation- columns.")
+    }
+    if (is.factor(start_run$node) == T) {
+        start_run$node <- as.character(start_run$node)
+    }
+    if (decay < 0 || decay > 1) {
+        stop("Decay value is not a number from 0 to 1.")
+    }
+    if (retention < 0 || retention > 1) {
+        stop("Retention value is not a number from 0 to 1.")
+    }
+    if (time < 0 || is.numeric(time) == F) {
+        stop("Something is off with the time value.")
+    }
+    if (igraph::is.igraph(network) == T) {
+        if (is.null(igraph::V(network)$name) == T) {
+            if (create_names == TRUE) {
+                igraph::V(network)$name = 1:length(igraph::V(network))
+            }
+            else {
+                stop("Network does not have a \"name\" attribute.")
+            }
+        }
+        if (length(unique(igraph::V(network)$name)) != igraph::gorder(network)) {
+            stop("Nodes need to have unique labels.")
+        }
+        if (igraph::is.weighted(network) == T) {
+            mat <- igraph::as_adj(network, sparse = F, attr = "weight")
+            d <- colSums(mat)
+            if (is.null(names(d))) 
+                names(d) <- 1:length(d)
+        }
+        else {
+            mat <- igraph::as_adj(network, sparse = F)
+            d <- colSums(mat)
+            if (is.null(names(d))) 
+                names(d) <- 1:length(d)
+        }
+    }
+    else {
+        mat <- network
+        d <- colSums(mat)
+        names(d) <- rownames(mat) #mec 1:length(d)
+    }
+    n_nodes = length(d)
+    a <- rep(0, n_nodes)
+    names(a) <- names(d)
+    a[start_run$node] <- start_run$activation
+    out_df <- data.frame(node = names(a), activation = a, time = 0L)
+    a_t <- a
+    activations = numeric(time * n_nodes)
+    for (i in seq_len(time)) {
+        a_tm1 <- a_t
+        mat_t = spreadr:::create_mat_t(mat, a_tm1, d, retention)
+        a_t <- colSums(mat_t)
+        a_t <- a_t * (1 - decay)
+        a_t[a_t < suppress] <- 0
+        activations[((i - 1) * n_nodes + 1):(i * n_nodes)] = a_t
+    }
+    nodes = rep(names(d), time)
+    is = rep(1:time, rep(n_nodes, time))
+    return(data.frame(node = nodes, activation = activations, 
+        time = is))
+}
+
+
+setkey(wl.dt,'Orthography')
+wl.dt[fread('Phonotactically_Irregular_Words.csv',col.names='Orthography'),regular:=FALSE]
+wl.dt[fread('Phonotactically_Regular_Words.csv',col.names='Orthography'),regular:=TRUE]
+w<-wl.dt[!is.na(regular),Orthography]
+w
+
+
+r<-lapply(
+  #mc.cores=5,mc.preschedule=FALSE
+ X=w#head(w)
+           ,FUN=function(word){
+            message(word)
+            spreadr(
+              network = mat
+             ,
+              start_run =   data.frame(node = word, activation = 20, stringsAsFactors = F),
+              retention = .5,
+              time = 5,
+              decay = 0,
+              suppress = 0,
+              create_names = TRUE
+            ) %>%
+              subset(node == word) %>% 
+              subset(time == 5) %>% 
+              subset(select = -c(time))
+          })
+
+
+r.dt <- wl.dt[rbindlist(r),]
+fwrite(r.dt,'results.tsv')
+```
+
+
+```{r}
+mat2 <- igraph::as_adj(lexicon.g, sparse = F)
+```
+
+```{r}
+setkey(wl.dt,'Orthography')
+wl.dt[fread('Phonotactically_Irregular_Words.csv',col.names='Orthography'),regular:=FALSE]
+wl.dt[fread('Phonotactically_Regular_Words.csv',col.names='Orthography'),regular:=TRUE]
+w<-wl.dt[!is.na(regular),Orthography]
+w
+
+
+r<-lapply(
+  #mc.cores=5,mc.preschedule=FALSE
+ X=w#head(w)
+           ,FUN=function(word){
+            message(word)
+            spreadr(
+              network = mat
+             ,
+              start_run =   data.frame(node = word, activation = 20, stringsAsFactors = F),
+              retention = .5,
+              time = 5,
+              decay = 0,
+              suppress = 0,
+              create_names = TRUE
+            ) %>%
+              subset(node == word) %>% 
+              subset(time == 5) %>% 
+              subset(select = -c(time))
+          })
+
+
+r.dt<-wl.dt[rbindlist(r),]
+r.dt
+fwrite(r.dt,'results.tsv')
+```
+
+
+Now we'll define our experiment. These values are taken from Vitevitch & Mullin.
+```{r}
+experiment1 <- function(word) 
+  spreadr(
+    network = mat2,
+    start_run = initial(word=word),
+    retention = .5,
+    time = 5,
+    decay = 0,
+    suppress = 0,
+    create_names = FALSE
+  ) 
+```
+
+The results function runs the experiment and returns only the stimulus word.
+```{r}
+results1 <- function(word) 
+  experiment1(word) %>%
+  subset(node == word) %>% 
+  subset(time == max(time))# %>% 
+  #(select = -c(time))
+```
+
+```{r}
+act_only <- function(word)
+  results1(word)[2] %>% 
+  as.numeric()
+```
+
+```{r}
+data2 = 'high_prob_words.csv'
+high_prob <- read.csv(file = data2)
+```
+
+```{r}
+#unlist(high_prob)
+results_list <- list()
+for (i in 1:length(high_prob)){
+  print((high_prob[i]))
+}
+```
+
+```{r}
+word_list <- lexicon.dt[['Orthography']]
+
+full_results = sapply(X = word_list,FUN=results1())
+
+```
+
+Now we're going to get a list of the degree and clustering coefficient 
+on all our words.
+
+```{r}
+
+# Let's start with degree.
+
+get_degree <- function(word) 
+  degree(
+    graph = lexicon.g,
+    v = word
+  )
+
+degree_list <-
+  sapply(
+    X = word_list,
+    FUN = get_degree,
+    USE.NAMES = FALSE
+  )
+
+
+# Great. Now let's do clustering coefficient.
+
+get_cc <- function(word) 
+  transitivity(
+    graph = lexicon.g,
+    vids = word,
+    type = "localundirected"
+  )
+
+cc_list <- 
+  sapply(
+    X = word_list,
+    FUN = get_cc,
+    USE.NAMES = TRUE
+  )
+
+# Now let's clear the NaN's in cc_list into 0s, as is convention.
+cc_list[!is.finite(cc_list)] <- 0
+
+```
+
+```{r}
+activation_by_stats <- data.frame(full_results,degree_list,cc_list)
+```
+
+# ```{r}
+# data2 <- 'low_prob_words.csv'
+# thing.dt <- fread(file = data2)
+# for (i in thing.dt){
+#   print(results1(i))
+#   print(degree(lexicon.g, i))
+# }
+# ```
+
+
+# ```{r}
+# data3 <- 'high_prob_words.csv'
+# thing.dt <- fread(file = data3)
+# for (i in thing.dt){
+#   print(results1(i))
+#   print(degree(lexicon.g, i))
+# }
+# ```

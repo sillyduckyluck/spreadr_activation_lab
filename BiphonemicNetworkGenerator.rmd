@@ -3,38 +3,39 @@
 # author: Leo Niehorster-Cook
 # output: html_notebook
 # ---
-# In this file, we will generate the full biphonemic network. 
-# On this network, A and B are neighbors iff they share a substring of length 2. 
-# The standard English word list has nearly 20,000 entrees, impeding computation.
-# For tests, we will use Toki Pona, with 120 words, so that everything is fast.
-# Note that Toki Pona is written phonetically, with a subset of English letters.
-# Thus, for Toki Pona, the orthography happens to be equivilent to the Klattese. 
-# However, this file will work for any lexicon.
-# At the end, we will make the network for English.
-# 
-# To make the network, we're going to have to load up our data and our packages.
-# Then, we'll define some useful functions before building anything.
-# Before we build the biphonemic network, we'll build a bipartite network.
-# The layers will represent words and biphones. Edges will denote substrings.
-# The phonotactic network is then just the projection of that.
-# 
-# Let's load our packages and our data.
+In this file, we will generate the full biphonemic network. 
+On this network, A and B are neighbors iff they share a substring of length 2. 
+The standard English word list has nearly 20,000 entrees, impeding computation.
+For tests, we will use Toki Pona, with 120 words, so that everything is fast.
+Note that Toki Pona is written phonetically, with a subset of English letters.
+Thus, for Toki Pona, the orthography happens to be equivalent to the Klattese. 
+However, this file will work for any lexicon.
+
+To make the network, we're going to have to load up our data and our packages.
+Then, we'll define some useful functions before building anything.
+Before we build the biphonemic network, we'll build a bipartite network.
+The layers will represent words and biphones. Edges will denote substrings.
+The phonotactic network is then just the projection of that.
+ 
+Let's load our packages and our data.
 
 ```{r} 
 # Packages
 
+library(magrittr)
 library(data.table) 
 library(igraph)
 library(ggplot2)
-
+library(spreadr)
 ```
 
 
 ```{r} 
 # Data - Pick your language
 
-#data <- 'low_prob_words.csv' 
+#data <- 'pu.csv'
 data <- 'WordList.csv' # English
+
 lexicon.dt <- fread(file=data)
 
 ```
@@ -70,7 +71,7 @@ biphones <- # Returns all the "2grams," i.e. two-length kgrams
 
 lexicon.dt[,constituents:=Vectorize(biphones)(Klattese)]
 
-# Now our wordlist is stored as a data table
+# Now our lexicon is stored as a data table
 # That column contains the constituent biphones of each word. 
 # Let's take a peek inside:
 
@@ -145,17 +146,6 @@ sublexicon.g <- # The Sublexicon
     parser.g,
     which="false"
   )
-```
-
-OK, let's take a peek!
-```{r}
-plot.igraph(
-  x = lexicon.g,
-  layout = layout.fruchterman.reingold(
-    graph = lexicon.g,
-    niter=1000
-  )
-)
 ```
 
 

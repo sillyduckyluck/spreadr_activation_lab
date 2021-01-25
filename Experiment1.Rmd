@@ -86,13 +86,15 @@ spreadr <-function(network, start_run, retention = 0.5, time = 10, decay = 0,
 ```{r}
 library(data.table)
 library(igraph)
+
+
 allsubstr <- function(x, n) unique(substring(x, 1:(nchar(x) - n + 1), n:nchar(x)))
 kgrams<-function(x,n) paste0('.',allsubstr(x=x,n=n))
 
 wl.dt<-fread(file='WordList.csv')
 #wl.dt<-head(wl.dt,100)
 #wl.dt<-wl.dt[sample(nrow(wl.dt),100),]
-wl.dt[,kgrams:=Vectorize(kgrams)(Klattese,2)]
+wl.dt[,kgrams :=Vectorize(kgrams)(Klattese,2)]
 wl.dt
 kgram<-wl.dt[,sort(unique(unlist(kgrams)))]
 xbp<-wl.dt[,list(a=rep(Orthography,lengths(kgrams)),kgram=unlist(kgrams))]
@@ -105,7 +107,10 @@ g<-bipartite_projection(b,which="true")
 
 write_graph(g,'WordList.gml','gml')
 
-mat<-igraph::as_adj(g, sparse = F) # unweighted graph
+
+
+#mat is the adjacency matrix of the biphone graph. 
+mat<-igraph::as_adj(g, sparse = F) #
 rownames(mat)
 
 library(parallel)
@@ -218,14 +223,62 @@ fwrite(r.dt,'results.tsv')
 mat2 <- igraph::as_adj(lexicon.g, sparse = F)
 ```
 
+
 ```{r}
+library(data.table)
+library(igraph)
+
+
+allsubstr <- function(x, n) unique(substring(x, 1:(nchar(x) - n + 1), n:nchar(x)))
+kgrams<-function(x,n) paste0('.',allsubstr(x=x,n=n))
+
+
+wl.dt<-fread(file='WordList.csv')
+#wl.dt<-head(wl.dt,100)
+#wl.dt<-wl.dt[sample(nrow(wl.dt),100),]
+wl.dt[,kgrams :=Vectorize(kgrams)(Klattese,2)]
+wl.dt
+
+#kgram: a set of the biphones (written in klattese)
+kgram<-wl.dt[,sort(unique(unlist(kgrams)))]
+
+#xpb: edgelist between a word and a biophone (in klattese)
+xbp<-wl.dt[,list(a=rep(Orthography,lengths(kgrams)),kgram=unlist(kgrams))]
+
+#v: a list of all the strings of both klattese and the english files, and is marked accordingly
+v<-data.frame(v=c(wl.dt$Orthography,kgram),type=c(rep(TRUE,length(wl.dt$Orthography))
+                                   ,rep(FALSE,length(kgram))))
+v
+
+#generate a graph
+#nodes: v
+#edges: xpb
+#saved as a bitartite graph
+b<-graph_from_data_frame(xbp, vertices=v)
+#library(rbenchmark)
+
+#project this graph into one where the nodes are in english
+#and edges connect words sharing a biphone
+g<-bipartite_projection(b,which="true")
+
+write_graph(g,'WordList.gml','gml')
+```
+
+```{r}
+
+
 setkey(wl.dt,'Orthography')
 wl.dt[fread('Phonotactically_Irregular_Words.csv',col.names='Orthography'),regular:=FALSE]
 wl.dt[fread('Phonotactically_Regular_Words.csv',col.names='Orthography'),regular:=TRUE]
+
+#a list of all the words we are interested in 
 w<-wl.dt[!is.na(regular),Orthography]
 w
+```
 
+```{r}
 
+#for every word in that list, run it through spreadr
 r<-lapply(
   #mc.cores=5,mc.preschedule=FALSE
  X=w#head(w)

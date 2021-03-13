@@ -1,0 +1,26 @@
+---
+title: "Degree & CC"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+reg_stim <- fread(file = 'Phonotactically_Regular_Words.csv')
+irg_stim <- fread(file = 'Phonotactically_Irregular_Words.csv')
+stim <- rbind(reg_stim,irg_stim)
+```
+
+```{r}
+get_degree <- function(word)
+  degree(graph = lexicon.g,v = word)
+
+stim[,deg := sapply(X = stim$Words,FUN = get_degree)]
+```
+
+```{r}
+stim[,clustering_coefficient := sapply(X = stim$Words,FUN = cc)]
+```
+

@@ -76,7 +76,7 @@ inspect_hood <- function(v, h = 2) nhophood(v, h) %>%
 # Note that igraph defines C(x) differently than as in Watts & Strogatz (1998)
 
 cc <- 
-  function(v) transitivity(graph = lexicon.g,type = "local",vids =v)
+  function(v) transitivity(graph = lexicon.g,type = "localundirected",vids =v)
 
 add_cc <-
   function(dt,word) data.table(dt)[,clustering:=cc(word)]
@@ -84,8 +84,3 @@ add_cc <-
 add_degree <- 
   function(dt,word) data.table(dt)[,degree:=degree(lexicon.g,word)]
 ```
-
-```{r}
-
-```
-

@@ -1,0 +1,254 @@
+---
+title: "Masking Field Generator"
+output: html_notebook
+---
+
+
+```{r}
+library(data.table) 
+library(igraph)
+library(ggplot2)
+library(stringr)
+
+data <- 'artful_toy_net.csv' # is it artful? paper
+```
+
+```{r}
+allsubstr <- # Returns a vector of all unique substrings of length n from x 
+  function(x, n) substring(
+      text = x,
+      first = 1:(nchar(x) - n + 1),
+      last = n:nchar(x)
+      ) %>% 
+    unique()
+
+
+phoneme_constituents <- # Returns all the "1grams," i.e. one-length kgrams
+  function(x) allsubstr(x = x, n = 1)[nchar(allsubstr(x,1)) == 1]
+
+
+biphone_constituents <- # Returns all the "2grams," i.e. two-length kgrams
+  function(x) allsubstr(x = x, n = 2)[nchar(allsubstr(x,2)) == 2]
+
+listchunk_constituents <- # Returns both biphones and phonemes
+  function(x) union(
+    phoneme_constituents(x),
+    biphone_constituents(x)
+    )
+
+mark_nonlexical <- # Returns listchunk_constituents marked for nonlexicality
+  function(x) paste0('.',x) 
+
+marked_biphones <- 
+  function(x) biphone_constituents(x) %>% 
+  lapply(FUN = mark_nonlexical) %>% 
+  unlist()
+
+marked_phonemes <- 
+  function(x) phoneme_constituents(x) %>% 
+  lapply(FUN = mark_nonlexical) %>% 
+  unlist()
+
+marked_constituents <- # Returns both biphones and phonemes
+  function(x) union(
+    marked_phonemes(x),
+    marked_biphones(x)
+    )
+
+```
+
+```{r}
+word.list <- fread(file=data)$Klattese
+word.list <- word.list[1:4]
+
+biphone.list <- 
+  lapply(
+    X = word.list,
+    FUN = biphone_constituents
+  ) %>% 
+  unlist() %>% 
+  unique() %>% 
+  sort()
+
+marked_biphone.list <- 
+  lapply(biphone.list,mark_nonlexical) %>% 
+  unlist()
+
+phoneme.list <- 
+  lapply(
+    X = biphone.list,
+    FUN = phoneme_constituents
+  ) %>% 
+  unlist() %>% 
+  unlist() %>% 
+  unique() %>% 
+  sort()
+
+marked_phoneme.list <- 
+  lapply(phoneme.list,mark_nonlexical) %>% 
+  unlist()
+```
+
+
+```{r}
+lexicon.dt <- data.table(word = word.list)
+lexicon.dt[,phonemes:= lapply(X = word.list, FUN = marked_phonemes)]
+lexicon.dt[,biphones:= lapply(X = word.list, FUN = marked_biphones)]
+lexicon.dt[,constituents:= lapply(X = word.list, FUN = marked_constituents)]
+```
+
+```{r}
+sublexicon.dt <- data.table(biphone = biphone.list)
+sublexicon.dt[,phonemes:= lapply(X=biphone.list,FUN=marked_phonemes)]
+```
+
+```{r}
+#nodes for all the entries in short term memory
+stm_vset <- data.frame(
+  v = c(
+    word.list,
+    paste0('.',biphone.list),
+    paste0('.',phoneme.list)
+  ),
+  type = c(
+    rep(TRUE,length(word.list)),
+    rep(FALSE,length(biphone.list)),
+    rep(FALSE,length(phoneme.list))
+  ),
+  length = c(
+    nchar(word.list),
+    nchar(biphone.list),
+    nchar(phoneme.list)
+    )
+)
+```
+
+```{r}
+#Generate a list of single phonemes for inputs (working memory array)
+wm_vset <- stm_vset["v"]
+wm_vset <- unlist(wm_vset)
+
+#this will have to be changed when there are lexical entries of size 2
+wm_vset <- subset(wm_vset, nchar(as.character(wm_vset)) <= 2)
+wm_vset <- unique(wm_vset)
+
+wm_vset <- paste(wm_vset, "=", sep = "")
+```
+
+```{r}
+#Generate excitatory edge set
+excit_eset <- data.table
+```
+
+
+```{r}
+#generate masking edge set
+eset1 <- lexicon.dt[,
+ list(
+   v1 = rep(word,lengths(constituents)),
+   v2 = unlist(constituents)
+ )
+]
+
+eset2 <- sublexicon.dt[,
+ list(
+   v1 = rep(mark_nonlexical(biphone),lengths(phonemes)),
+   v2 = unlist(phonemes)
+ )
+]
+
+mask_eset <- rbind(eset1,eset2)
+mask_eset$type <- "masking"
+```
+
+
+```{r}
+#Generate inhibitory edge set for lexical entries
+eset3 <- lexicon.dt[,
+  list(
+    v1 = rep(lexicon.dt$word, lengths(lexicon.dt$biphones)),
+    v2 = unlist(lexicon.dt$biphones)
+    )
+  ]
+
+#create datatable where c1 is a biphone, c2 and c3 are words that share that biphone 
+eset3 <- unique(merge(eset3, eset3, by = "v2"))
+
+#drop biphones column
+eset3$v2 <- NULL
+
+#drop "symmetrical" columns (where c1 == c2)
+eset3 <- eset3[eset3$v1.x!=eset3$v1.y,]
+
+#remove reverse duplicate columns 
+eset3 <- eset3[!duplicated(lapply(as.data.frame(t(eset3), stringsAsFactors=FALSE), sort)),]
+```
+
+```{r}
+#Generate inhibitory edge set for sublexical entries
+eset4 <- sublexicon.dt[,
+  list(
+    v1 = rep(sublexicon.dt$biphone, lengths(sublexicon.dt$phonemes)),
+    v2 = unlist(sublexicon.dt$phonemes)
+    )
+  ]
+
+#create datatable where c1 is a biphone, c2 and c3 are words that share that biphone 
+eset4 <- unique(merge(eset4, eset4, by = "v1"))
+
+#drop biphones column
+eset4$v1 <- NULL
+ 
+#drop "symmetrical" columns (where c1 == c2)
+eset4 <- eset4[eset4$v2.x!=eset4$v2.y,]
+
+#remove reverse duplicate columns 
+eset4 <- eset4[!duplicated(lapply(as.data.frame(t(eset4), stringsAsFactors=FALSE), sort)),]
+```
+
+
+```{r}
+#generate total inhibitory edge set
+colnames(eset3) = c("v1", "v2")
+colnames(eset4) = c("v1", "v2")
+
+inhib_eset <- rbind(eset3, eset4)
+inhib_eset$type = "lateral_inhib"
+```
+
+
+```{r}
+mfield.g <- graph_from_data_frame(d = eset, vertices = vset)
+```
+
+```{r}
+plot(mfield.g)
+```
+
+
+
+
+```{r}
+#edge_set <- do.call(rbind, Map(data.frame, v1 = newthing, v2 = newthing2))
+```
+
+```{r}
+#edge_set <- rbind(eset,  edge_set)
+```
+
+```{r}
+
+```
+
+```{r}
+#mfield.g <- graph_from_data_frame(d = edge_set, vertices = vert_set)
+```
+
+
+```{r}
+#set the weights
+
+#E(mfield.g)$weight <- 1
+```
+
+

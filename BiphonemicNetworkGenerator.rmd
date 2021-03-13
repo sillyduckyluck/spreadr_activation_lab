@@ -118,7 +118,6 @@ vset <- data.frame(
 <!-- We're nearly ready to construct the graph. -->
 <!-- Before we do, let's get the edges into another dataframe. -->
 ```{r}
-
 eset <- lexicon.dt[,
   list(
     Orthography = rep(Orthography,lengths(constituents)),
@@ -153,7 +152,6 @@ Let's write the networks to memory and get out of here!
 
 
 ```{r}
-
  write_graph(
    graph = lexicon.g,
    file = 'lexicon.gml',

@@ -4,37 +4,53 @@ output: html_notebook
 ---
 
 
-```{r}
-library(data.table) 
+```{r,message = FALSE}
+library(data.table)
+library(tidyr)
+
 library(igraph)
 library(ggplot2)
 library(stringr)
-
+require(data.table)
 data <- 'artful_toy_net.csv' # is it artful? paper
+#data <- 'pu.csv'
+
+input_word <- 'bin'
+sample_size <- 4
 ```
 
 ```{r}
-allsubstr <- # Returns a vector of all unique substrings of length n from x 
+all_substr <- # Returns a vector of all substrings of length n from x 
   function(x, n) substring(
       text = x,
       first = 1:(nchar(x) - n + 1),
       last = n:nchar(x)
-      ) %>% 
+      )
+
+unique_substr <- # Returns a vector of all unique substrings of length n from x 
+  function(x, n) all_substr(x = x, n = n) %>% 
     unique()
 
+ordered_phoneme_constituents <- # Returns all the "1grams," i.e. one-length kgrams
+  function(x) unique_substr(x = x, n = 1)[nchar(all_substr(x,1)) == 1]
 
 phoneme_constituents <- # Returns all the "1grams," i.e. one-length kgrams
-  function(x) allsubstr(x = x, n = 1)[nchar(allsubstr(x,1)) == 1]
-
+  function(x) unique_substr(x = x, n = 1)[nchar(unique_substr(x,1)) == 1]
 
 biphone_constituents <- # Returns all the "2grams," i.e. two-length kgrams
-  function(x) allsubstr(x = x, n = 2)[nchar(allsubstr(x,2)) == 2]
+  function(x) unique_substr(x = x, n = 2)[nchar(unique_substr(x,2)) == 2]
 
 listchunk_constituents <- # Returns both biphones and phonemes
   function(x) union(
     phoneme_constituents(x),
     biphone_constituents(x)
     )
+```
+
+
+```{r}
+mark_input <-
+  function(x) paste0('$',x)
 
 mark_nonlexical <- # Returns listchunk_constituents marked for nonlexicality
   function(x) paste0('.',x) 
@@ -54,29 +70,28 @@ marked_constituents <- # Returns both biphones and phonemes
     marked_phonemes(x),
     marked_biphones(x)
     )
-
 ```
 
 ```{r}
-word.list <- fread(file=data)$Klattese
-word.list <- word.list[1:4]
+word_list <- fread(file=data)$Klattese
+word_list <- word.list[1:sample_size]
 
-biphone.list <- 
+biphone_list <- 
   lapply(
-    X = word.list,
+    X = word_list,
     FUN = biphone_constituents
   ) %>% 
   unlist() %>% 
   unique() %>% 
   sort()
 
-marked_biphone.list <- 
-  lapply(biphone.list,mark_nonlexical) %>% 
+marked_biphone_list <- 
+  lapply(biphone_list,mark_nonlexical) %>% 
   unlist()
 
-phoneme.list <- 
+phoneme_list <- 
   lapply(
-    X = biphone.list,
+    X = biphone_list,
     FUN = phoneme_constituents
   ) %>% 
   unlist() %>% 
@@ -84,26 +99,111 @@ phoneme.list <-
   unique() %>% 
   sort()
 
-marked_phoneme.list <- 
-  lapply(phoneme.list,mark_nonlexical) %>% 
+marked_phoneme_list <- 
+  lapply(phoneme_list,mark_nonlexical) %>% 
   unlist()
 ```
 
 
 ```{r}
-lexicon.dt <- data.table(word = word.list)
-lexicon.dt[,phonemes:= lapply(X = word.list, FUN = marked_phonemes)]
-lexicon.dt[,biphones:= lapply(X = word.list, FUN = marked_biphones)]
-lexicon.dt[,constituents:= lapply(X = word.list, FUN = marked_constituents)]
+lexicon.dt <- data.table(list_chunk = word_list)
+lexicon.dt[,constituents:= lapply(X = word_list, FUN = marked_constituents)]
 ```
 
 ```{r}
-sublexicon.dt <- data.table(biphone = biphone.list)
-sublexicon.dt[,phonemes:= lapply(X=biphone.list,FUN=marked_phonemes)]
+sublexicon.dt <- data.table(list_chunk = c(marked_biphone_list,marked_phoneme_list))
+sublexicon.dt[,constituents:= c(
+  lapply(
+    FUN = marked_phonemes,
+    X = biphone_list
+  ),
+  rep(NA,length(phoneme.list))
+  )]
 ```
 
 ```{r}
-#nodes for all the entries in short term memory
+mfield.dt <- rbind(
+  lexicon.dt,
+  sublexicon.dt
+)
+
+mfield.dt
+```
+
+
+```{r}
+edge_set_vertical <- mfield.dt %>% 
+  unnest(cols = constituents) %>%
+  drop_na %>% 
+  data.table
+
+edge_set_vertical
+```
+
+
+```{r}
+mfield.g <- graph_from_data_frame(
+  vertices = mfield.dt$list_chunk,
+  d = edge_set_vertical,
+  directed = TRUE
+  ) 
+
+mfield.g %>% 
+  plot()
+```
+
+
+
+```{r}
+#WORKING MEMORY (input) set
+wm_vset <- data.frame(
+  v = c(
+    mark_input(phoneme.list)
+  ),
+  type = c(
+    rep("INPUT")
+  ),
+  length = c(
+    rep(1)
+  )
+)
+
+```
+
+```{r}
+input_vector <- strsplit(input_word,"") %>% unlist()
+
+dataset<-data.frame(input= input_vector)
+dt <- data.table( dataset )
+dt$Index <- 1:nrow(dt)
+#dt[ , Index := rep(1) , by = c("input") ]
+
+dt$v <- paste(dt$input,dt$Index, sep = "")
+#dt <- class(as.data.frame(dt))
+setDF(dt)
+wm_vset <- dt
+wm_vset$type = 'INPUT'
+wm_vset$length = 1
+wm_vset$Index = NULL
+wm_vset$input = NULL
+wm_vset$v <- lapply(wm_vset[,'v'], function(x) mark_input(x))
+
+#vset$y[vset$type=='INPUT'] <- 0
+#vset$y[vset$type=='FALSE'  & vset$length==1] <- 4
+#vset$y[vset$type=='FALSE'  & vset$length==2] <- 6
+#vset$y[vset$type=='TRUE'] <- 10
+
+#vset$x <- 1:nrow(vset)
+
+#vset$x[vset$type=='INPUT'] <- 1:nrow(vset)
+#vset$x[vset$type=='FALSE'& vset$length==1] <- 1:999
+#vset$x[vset$type=='FALSE'& vset$length==2] <- 1:999
+#vset$x[vset$type=='TRUE'] <- 1:nrow(vset)
+
+```
+
+```{r}
+#SHORT-TERM MEMORY nodes
 stm_vset <- data.frame(
   v = c(
     word.list,
@@ -124,36 +224,25 @@ stm_vset <- data.frame(
 ```
 
 ```{r}
-#Generate a list of single phonemes for inputs (working memory array)
-wm_vset <- stm_vset["v"]
-wm_vset <- unlist(wm_vset)
+#ALL VERTICIES (input) set
+vset <- rbind(wm_vset, stm_vset)
 
-#this will have to be changed when there are lexical entries of size 2
-wm_vset <- subset(wm_vset, nchar(as.character(wm_vset)) <= 2)
-wm_vset <- unique(wm_vset)
-
-wm_vset <- paste(wm_vset, "=", sep = "")
-```
-
-```{r}
-#Generate excitatory edge set
-excit_eset <- data.table
 ```
 
 
 ```{r}
-#generate masking edge set
+#generate MASKING edge set
 eset1 <- lexicon.dt[,
  list(
-   v1 = rep(word,lengths(constituents)),
+   v1 = rep(list_chunk,lengths(constituents)),
    v2 = unlist(constituents)
  )
 ]
 
 eset2 <- sublexicon.dt[,
  list(
-   v1 = rep(mark_nonlexical(biphone),lengths(phonemes)),
-   v2 = unlist(phonemes)
+   v1 = rep(mark_nonlexical(list_chunk),lengths(constituents)),
+   v2 = unlist(constituents)
  )
 ]
 
@@ -163,16 +252,16 @@ mask_eset$type <- "masking"
 
 
 ```{r}
-#Generate inhibitory edge set for lexical entries
+#Generate INHIBITORY edges for lexical entries
 eset3 <- lexicon.dt[,
   list(
-    v1 = rep(lexicon.dt$word, lengths(lexicon.dt$biphones)),
-    v2 = unlist(lexicon.dt$biphones)
+    v1 = rep(lexicon.dt$item, lengths(lexicon.dt$constituents)),
+    v2 = unlist(lexicon.dt$constituents)
     )
   ]
 
 #create datatable where c1 is a biphone, c2 and c3 are words that share that biphone 
-eset3 <- unique(merge(eset3, eset3, by = "v2"))
+eset3 <- unique(merge(eset3, eset3, by = "v2", allow.cartesian =TRUE))
 
 #drop biphones column
 eset3$v2 <- NULL
@@ -185,7 +274,7 @@ eset3 <- eset3[!duplicated(lapply(as.data.frame(t(eset3), stringsAsFactors=FALSE
 ```
 
 ```{r}
-#Generate inhibitory edge set for sublexical entries
+#Generate INHIBITORY edgses for sublexical entries
 eset4 <- sublexicon.dt[,
   list(
     v1 = rep(sublexicon.dt$biphone, lengths(sublexicon.dt$phonemes)),
@@ -194,21 +283,23 @@ eset4 <- sublexicon.dt[,
   ]
 
 #create datatable where c1 is a biphone, c2 and c3 are words that share that biphone 
-eset4 <- unique(merge(eset4, eset4, by = "v1"))
+eset4 <- unique(merge(eset4, eset4, by = "v2", allow.cartesian = TRUE))
 
 #drop biphones column
-eset4$v1 <- NULL
+eset4$v2 <- NULL
  
 #drop "symmetrical" columns (where c1 == c2)
-eset4 <- eset4[eset4$v2.x!=eset4$v2.y,]
+eset4 <- eset4[eset4$v1.x!=eset4$v1.y,]
 
 #remove reverse duplicate columns 
 eset4 <- eset4[!duplicated(lapply(as.data.frame(t(eset4), stringsAsFactors=FALSE), sort)),]
+eset4[,'v1.x'] <- lapply(eset4[,'v1.x'], function(x) mark_nonlexical(x))
+eset4[,'v1.y'] <- lapply(eset4[,'v1.y'], function(x) mark_nonlexical(x))
 ```
 
 
 ```{r}
-#generate total inhibitory edge set
+#generate total INHIBITORY edge set
 colnames(eset3) = c("v1", "v2")
 colnames(eset4) = c("v1", "v2")
 
@@ -216,39 +307,154 @@ inhib_eset <- rbind(eset3, eset4)
 inhib_eset$type = "lateral_inhib"
 ```
 
-
 ```{r}
-mfield.g <- graph_from_data_frame(d = eset, vertices = vset)
+#Generate EXCITATORY input-phoneme edges
+
+eset5 <- data.table(
+  v1 = input_vector,
+  v2 = mark_nonlexical(input_vector)
+) 
+
+eset5 <- data.table(
+  v1 = unlist(dt['v']),
+  v2 = unlist(dt['input'])
+)
+eset5[,'v1'] <- lapply(eset5[,'v1'], function(x) mark_input(x))
+eset5[,'v2'] <- lapply(eset5[,'v2'], function(x) mark_nonlexical(x))
 ```
 
 ```{r}
-plot(mfield.g)
+#Generate EXCITATORY input-sublexical edges
+eset6 <- sublexicon.dt[,
+ list(
+   v1 = unlist(phonemes),
+   v2 = rep(mark_nonlexical(biphone),lengths(phonemes))
+ )
+]
+eset6[,'v1'] <- lapply(eset6[,'v1'], function(x) gsub("[[:punct:]]+", "", tolower(x)))
+
+
+
+
+
+eset6[,'v1'] <- lapply(eset6[,'v1'], function(x) gsub("[[:punct:]]+", "", tolower(x)))
+merge_stuff <- merge(eset6, dt, by.x ='v1',by.y = 'input', allow.cartesian =TRUE)
+eset6 <- data.table(
+  v1 = merge_stuff$v,
+  v2 = merge_stuff$v2)
+eset6[,'v1'] <- lapply(eset6[,'v1'], function(x) mark_input(x))
+```
+
+```{r}
+#Generate EXCITATORY input-lexical edges
+eset7 <- lexicon.dt[,
+ list(
+   v1 = unlist(phonemes),
+   v2 = rep(word,lengths(phonemes))
+ )
+]
+eset7[,'v1'] <- lapply(eset7[,'v1'], function(x) gsub("[[:punct:]]+", "", tolower(x)))
+merge_stuff <- merge(eset7, dt, by.x ='v1',by.y = 'input', allow.cartesian =TRUE)
+eset7 <- data.table(
+  v1 = merge_stuff$v,
+  v2 = merge_stuff$v2)
+eset7[,'v1'] <- lapply(eset7[,'v1'], function(x) mark_input(x))
+```
+
+```{r}
+#Generate EXCITATORY sublexical-lexical edges
+eset8 <- lexicon.dt[,
+ list(
+   v1 = unlist(biphones),
+   v2 = rep(word,lengths(biphones))
+ )
+]
+eset8[,'v1'] <- lapply(eset8[,'v1'], function(x) gsub("[[:punct:]]+", "", tolower(x)))
+eset8[,'v1'] <- lapply(eset8[,'v1'], function(x) mark_nonlexical(x))
+```
+
+```{r}
+#Combine EXCITATORY edges into exct_set
+exct_eset <- rbind(eset6,eset7)
+
+#mark with dollar sign to signify input node
+#exct_eset[,'v1'] <- lapply(exct_eset[,'v1'], function(x) mark_input(x))
+exct_eset <- rbind(exct_eset, eset8)
+exct_eset <- rbind(exct_eset, eset5)
+exct_eset$type <- "exctitatory"
 ```
 
 
-
-
 ```{r}
-#edge_set <- do.call(rbind, Map(data.frame, v1 = newthing, v2 = newthing2))
-```
-
-```{r}
-#edge_set <- rbind(eset,  edge_set)
-```
-
-```{r}
-
-```
-
-```{r}
-#mfield.g <- graph_from_data_frame(d = edge_set, vertices = vert_set)
+#Combine all edge sets
+eset <- rbind(exct_eset, inhib_eset,mask_eset)
+#eset$type = NULL
 ```
 
 
 ```{r}
-#set the weights
+eset$type = as.factor(eset$type)
+color_easy = c("green","blue","red")[eset$type]
+eset$color = color_easy
+#plot(mfield.g, col = color_easy)
+```
 
-#E(mfield.g)$weight <- 1
+```{r}
+#assign x and y coordinates for the graph
+vset$y[vset$type=='INPUT'] <- 0
+vset$y[vset$type=='FALSE'  & vset$length==1] <- 4
+vset$y[vset$type=='FALSE'  & vset$length==2] <- 6
+vset$y[vset$type=='TRUE'] <- 10
+
+vset$x <- 1:nrow(vset)
+
+vset$x[vset$type=='INPUT'] <- 1:nrow(vset)
+vset$x[vset$type=='FALSE'& vset$length==1] <- 1:999
+vset$x[vset$type=='FALSE'& vset$length==2] <- 1:999
+vset$x[vset$type=='TRUE'] <- 1:nrow(vset)
+
+
+color_easy = c("green","blue","red")[eset$type]
+eset$color = color_easy
+#plot(mfield.g, col = color_easy)
+```
+
+```{r}
+mfield.g <- graph_from_data_frame(vertices = vset, d = eset, directed = TRUE)
+```
+
+```{r}
+mfield_eset <- rbind(mask_eset,inhib_eset)
+mfield_vset <- stm_vset
+
+#assign x and y coordinates for the graph
+stm_vset$y[stm_vset$type=='INPUT'] <- 0
+stm_vset$y[stm_vset$type=='FALSE'  & stm_vset$length==1] <- 4
+stm_vset$y[stm_vset$type=='FALSE'  & stm_vset$length==2] <- 6
+stm_vset$y[stm_vset$type=='TRUE'] <- 10
+
+stm_vset$x <- 1:nrow(stm_vset)
+
+stm_vset$x[stm_vset$type=='INPUT'] <- 1:nrow(stm_vset)
+stm_vset$x[stm_vset$type=='FALSE'& stm_vset$length==1] <- 1:999
+stm_vset$x[stm_vset$type=='FALSE'& stm_vset$length==2] <- 1:999
+stm_vset$x[stm_vset$type=='TRUE'] <- 1:nrow(stm_vset)
+
+mfield_eset$type = as.factor(mfield_eset$type)
+
+color_easy = c("blue","red")[mfield_eset$type]
+
+
+
+mfield_eset$color = color_easy
+
+
+mfield2.g <- graph_from_data_frame(vertices = stm_vset, d = mfield_eset, directed = TRUE)
+plot(mfield2.g, layout_with_dh(mfield2.g), curved = TRUE)
+```
+
+```{r}
+plot(mfield.g, layout_with_dh(mfield.g), curved = FALSE)
 ```
 
 
